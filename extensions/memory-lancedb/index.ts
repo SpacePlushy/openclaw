@@ -2,13 +2,12 @@
  * OpenClaw Memory (LanceDB) Plugin
  *
  * Long-term memory with vector search for AI conversations.
- * Uses LanceDB for storage and OpenAI for embeddings.
+ * Supports local embeddings (node-llama-cpp) or OpenAI.
  * Provides seamless auto-recall and auto-capture via lifecycle hooks.
  */
 
 import { Type } from "@sinclair/typebox";
 import * as lancedb from "@lancedb/lancedb";
-import OpenAI from "openai";
 import { randomUUID } from "node:crypto";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { stringEnum } from "openclaw/plugin-sdk";
@@ -16,6 +15,7 @@ import { stringEnum } from "openclaw/plugin-sdk";
 import {
   MEMORY_CATEGORIES,
   type MemoryCategory,
+  type EmbeddingProvider,
   memoryConfigSchema,
   vectorDimsForModel,
 } from "./config.js";
@@ -37,6 +37,10 @@ type MemorySearchResult = {
   entry: MemoryEntry;
   score: number;
 };
+
+interface EmbeddingClient {
+  embed(text: string): Promise<number[]>;
+}
 
 // ============================================================================
 // LanceDB Provider
@@ -150,13 +154,15 @@ class MemoryDB {
 // OpenAI Embeddings
 // ============================================================================
 
-class Embeddings {
-  private client: OpenAI;
+class OpenAIEmbeddings implements EmbeddingClient {
+  private client: any; // OpenAI client
 
   constructor(
     apiKey: string,
     private model: string,
   ) {
+    // Dynamic import to avoid bundling OpenAI when using local
+    const OpenAI = require("openai").default;
     this.client = new OpenAI({ apiKey });
   }
 
@@ -167,6 +173,64 @@ class Embeddings {
     });
     return response.data[0].embedding;
   }
+}
+
+// ============================================================================
+// Local Embeddings (node-llama-cpp)
+// ============================================================================
+
+class LocalEmbeddings implements EmbeddingClient {
+  private context: any = null;
+  private initPromise: Promise<void> | null = null;
+  private model: any = null;
+  private llama: any = null;
+
+  constructor(private modelPath: string) {}
+
+  private async ensureInitialized(): Promise<void> {
+    if (this.context) return;
+    if (this.initPromise) return this.initPromise;
+
+    this.initPromise = this.doInitialize();
+    return this.initPromise;
+  }
+
+  private async doInitialize(): Promise<void> {
+    // Dynamic import of node-llama-cpp
+    const { getLlama, resolveModelFile, LlamaLogLevel } = await import("node-llama-cpp");
+
+    this.llama = await getLlama({ logLevel: LlamaLogLevel.error });
+    const resolvedPath = await resolveModelFile(this.modelPath);
+    this.model = await this.llama.loadModel({ modelPath: resolvedPath });
+    this.context = await this.model.createEmbeddingContext();
+  }
+
+  async embed(text: string): Promise<number[]> {
+    await this.ensureInitialized();
+    const embedding = await this.context.getEmbeddingFor(text);
+    return Array.from(embedding.vector) as number[];
+  }
+}
+
+// ============================================================================
+// Embedding Factory
+// ============================================================================
+
+function createEmbeddingClient(
+  provider: EmbeddingProvider,
+  apiKey?: string,
+  model?: string,
+  localModelPath?: string,
+): EmbeddingClient {
+  if (provider === "local") {
+    const path = localModelPath || "hf:ggml-org/embeddinggemma-300M-GGUF/embeddinggemma-300M-Q8_0.gguf";
+    return new LocalEmbeddings(path);
+  }
+
+  if (!apiKey) {
+    throw new Error("OpenAI API key is required for openai provider");
+  }
+  return new OpenAIEmbeddings(apiKey, model || "text-embedding-3-small");
 }
 
 // ============================================================================
@@ -216,19 +280,25 @@ function detectCategory(text: string): MemoryCategory {
 const memoryPlugin = {
   id: "memory-lancedb",
   name: "Memory (LanceDB)",
-  description: "LanceDB-backed long-term memory with auto-recall/capture",
+  description: "LanceDB-backed long-term memory with auto-recall/capture (supports local embeddings)",
   kind: "memory" as const,
   configSchema: memoryConfigSchema,
 
   register(api: OpenClawPluginApi) {
     const cfg = memoryConfigSchema.parse(api.pluginConfig);
     const resolvedDbPath = api.resolvePath(cfg.dbPath!);
-    const vectorDim = vectorDimsForModel(cfg.embedding.model ?? "text-embedding-3-small");
+    const vectorDim = vectorDimsForModel(cfg.embedding.model ?? "text-embedding-3-small", cfg.embedding.provider);
     const db = new MemoryDB(resolvedDbPath, vectorDim);
-    const embeddings = new Embeddings(cfg.embedding.apiKey, cfg.embedding.model!);
+
+    const embeddings = createEmbeddingClient(
+      cfg.embedding.provider,
+      cfg.embedding.apiKey,
+      cfg.embedding.model,
+      cfg.embedding.localModelPath,
+    );
 
     api.logger.info(
-      `memory-lancedb: plugin registered (db: ${resolvedDbPath}, lazy init)`,
+      `memory-lancedb: plugin registered (db: ${resolvedDbPath}, provider: ${cfg.embedding.provider}, lazy init)`,
     );
 
     // ========================================================================
@@ -454,6 +524,8 @@ const memoryPlugin = {
           .action(async () => {
             const count = await db.count();
             console.log(`Total memories: ${count}`);
+            console.log(`Provider: ${cfg.embedding.provider}`);
+            console.log(`Model: ${cfg.embedding.model}`);
           });
       },
       { commands: ["ltm"] },
@@ -577,7 +649,7 @@ const memoryPlugin = {
       id: "memory-lancedb",
       start: () => {
         api.logger.info(
-          `memory-lancedb: initialized (db: ${resolvedDbPath}, model: ${cfg.embedding.model})`,
+          `memory-lancedb: initialized (db: ${resolvedDbPath}, provider: ${cfg.embedding.provider}, model: ${cfg.embedding.model})`,
         );
       },
       stop: () => {

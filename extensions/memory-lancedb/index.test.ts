@@ -45,11 +45,12 @@ describe("memory plugin e2e", () => {
     expect(memoryPlugin.register).toBeInstanceOf(Function);
   });
 
-  test("config schema parses valid config", async () => {
+  test("config schema parses valid openai config", async () => {
     const { default: memoryPlugin } = await import("./index.js");
 
     const config = memoryPlugin.configSchema?.parse?.({
       embedding: {
+        provider: "openai",
         apiKey: OPENAI_API_KEY,
         model: "text-embedding-3-small",
       },
@@ -59,7 +60,26 @@ describe("memory plugin e2e", () => {
     });
 
     expect(config).toBeDefined();
+    expect(config?.embedding?.provider).toBe("openai");
     expect(config?.embedding?.apiKey).toBe(OPENAI_API_KEY);
+    expect(config?.dbPath).toBe(dbPath);
+  });
+
+  test("config schema parses valid local config", async () => {
+    const { default: memoryPlugin } = await import("./index.js");
+
+    const config = memoryPlugin.configSchema?.parse?.({
+      embedding: {
+        provider: "local",
+      },
+      dbPath,
+      autoCapture: true,
+      autoRecall: true,
+    });
+
+    expect(config).toBeDefined();
+    expect(config?.embedding?.provider).toBe("local");
+    expect(config?.embedding?.apiKey).toBeUndefined();
     expect(config?.dbPath).toBe(dbPath);
   });
 
@@ -71,6 +91,7 @@ describe("memory plugin e2e", () => {
 
     const config = memoryPlugin.configSchema?.parse?.({
       embedding: {
+        provider: "openai",
         apiKey: "${TEST_MEMORY_API_KEY}",
       },
       dbPath,
@@ -81,15 +102,17 @@ describe("memory plugin e2e", () => {
     delete process.env.TEST_MEMORY_API_KEY;
   });
 
-  test("config schema rejects missing apiKey", async () => {
+  test("config schema rejects missing apiKey for openai provider", async () => {
     const { default: memoryPlugin } = await import("./index.js");
 
     expect(() => {
       memoryPlugin.configSchema?.parse?.({
-        embedding: {},
+        embedding: {
+          provider: "openai",
+        },
         dbPath,
       });
-    }).toThrow("embedding.apiKey is required");
+    }).toThrow("embedding.apiKey is required for OpenAI provider");
   });
 
   test("shouldCapture filters correctly", async () => {

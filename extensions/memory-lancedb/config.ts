@@ -3,11 +3,14 @@ import fs from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+export type EmbeddingProvider = "openai" | "local";
+
 export type MemoryConfig = {
   embedding: {
-    provider: "openai";
+    provider: EmbeddingProvider;
     model?: string;
-    apiKey: string;
+    apiKey?: string; // Optional for local provider
+    localModelPath?: string; // For local provider
   };
   dbPath?: string;
   autoCapture?: boolean;
@@ -17,7 +20,9 @@ export type MemoryConfig = {
 export const MEMORY_CATEGORIES = ["preference", "fact", "decision", "entity", "other"] as const;
 export type MemoryCategory = (typeof MEMORY_CATEGORIES)[number];
 
-const DEFAULT_MODEL = "text-embedding-3-small";
+const DEFAULT_OPENAI_MODEL = "text-embedding-3-small";
+const DEFAULT_LOCAL_MODEL = "hf:ggml-org/embeddinggemma-300M-GGUF/embeddinggemma-300M-Q8_0.gguf";
+const LOCAL_VECTOR_DIMS = 768;
 const LEGACY_STATE_DIRS: string[] = [];
 
 function resolveDefaultDbPath(): string {
@@ -46,6 +51,8 @@ const DEFAULT_DB_PATH = resolveDefaultDbPath();
 const EMBEDDING_DIMENSIONS: Record<string, number> = {
   "text-embedding-3-small": 1536,
   "text-embedding-3-large": 3072,
+  // Local model
+  "embeddinggemma-300M": LOCAL_VECTOR_DIMS,
 };
 
 function assertAllowedKeys(
@@ -58,7 +65,10 @@ function assertAllowedKeys(
   throw new Error(`${label} has unknown keys: ${unknown.join(", ")}`);
 }
 
-export function vectorDimsForModel(model: string): number {
+export function vectorDimsForModel(model: string, provider: EmbeddingProvider): number {
+  if (provider === "local") {
+    return LOCAL_VECTOR_DIMS;
+  }
   const dims = EMBEDDING_DIMENSIONS[model];
   if (!dims) {
     throw new Error(`Unsupported embedding model: ${model}`);
@@ -76,12 +86,6 @@ function resolveEnvVars(value: string): string {
   });
 }
 
-function resolveEmbeddingModel(embedding: Record<string, unknown>): string {
-  const model = typeof embedding.model === "string" ? embedding.model : DEFAULT_MODEL;
-  vectorDimsForModel(model);
-  return model;
-}
-
 export const memoryConfigSchema = {
   parse(value: unknown): MemoryConfig {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -91,18 +95,32 @@ export const memoryConfigSchema = {
     assertAllowedKeys(cfg, ["embedding", "dbPath", "autoCapture", "autoRecall"], "memory config");
 
     const embedding = cfg.embedding as Record<string, unknown> | undefined;
-    if (!embedding || typeof embedding.apiKey !== "string") {
-      throw new Error("embedding.apiKey is required");
+    if (!embedding) {
+      throw new Error("embedding config is required");
     }
-    assertAllowedKeys(embedding, ["apiKey", "model"], "embedding config");
 
-    const model = resolveEmbeddingModel(embedding);
+    const provider = (embedding.provider as EmbeddingProvider) || "openai";
+    assertAllowedKeys(embedding, ["provider", "apiKey", "model", "localModelPath"], "embedding config");
+
+    // For OpenAI, apiKey is required
+    if (provider === "openai" && typeof embedding.apiKey !== "string") {
+      throw new Error("embedding.apiKey is required for OpenAI provider");
+    }
+
+    const model = provider === "local"
+      ? (typeof embedding.model === "string" ? embedding.model : DEFAULT_LOCAL_MODEL)
+      : (typeof embedding.model === "string" ? embedding.model : DEFAULT_OPENAI_MODEL);
+
+    const localModelPath = typeof embedding.localModelPath === "string"
+      ? embedding.localModelPath
+      : DEFAULT_LOCAL_MODEL;
 
     return {
       embedding: {
-        provider: "openai",
+        provider,
         model,
-        apiKey: resolveEnvVars(embedding.apiKey),
+        apiKey: typeof embedding.apiKey === "string" ? resolveEnvVars(embedding.apiKey) : undefined,
+        localModelPath,
       },
       dbPath: typeof cfg.dbPath === "string" ? cfg.dbPath : DEFAULT_DB_PATH,
       autoCapture: cfg.autoCapture !== false,
@@ -110,16 +128,27 @@ export const memoryConfigSchema = {
     };
   },
   uiHints: {
+    "embedding.provider": {
+      label: "Embedding Provider",
+      placeholder: "local",
+      help: "Choose 'local' for on-device embeddings (no API key) or 'openai' for cloud",
+    },
     "embedding.apiKey": {
       label: "OpenAI API Key",
       sensitive: true,
       placeholder: "sk-proj-...",
-      help: "API key for OpenAI embeddings (or use ${OPENAI_API_KEY})",
+      help: "API key for OpenAI embeddings (only required if provider is 'openai')",
     },
     "embedding.model": {
       label: "Embedding Model",
-      placeholder: DEFAULT_MODEL,
-      help: "OpenAI embedding model to use",
+      placeholder: DEFAULT_OPENAI_MODEL,
+      help: "Embedding model to use",
+    },
+    "embedding.localModelPath": {
+      label: "Local Model Path",
+      placeholder: DEFAULT_LOCAL_MODEL,
+      help: "Path or HuggingFace URI for local embedding model",
+      advanced: true,
     },
     dbPath: {
       label: "Database Path",
