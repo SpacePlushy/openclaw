@@ -467,6 +467,16 @@ export async function runEmbeddedAttempt(
         throw new Error("Embedded agent session missing");
       }
       const activeSession = session;
+
+      // Fix: Initialize extension runner's getModel so extensions can access the model.
+      // Without this, ctx.model returns undefined in extension handlers, breaking
+      // compaction-safeguard and other extensions that need model access.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sessionAny = activeSession as any;
+      if (sessionAny._extensionRunner) {
+        sessionAny._extensionRunner.getModel = () => activeSession.model;
+      }
+
       const cacheTrace = createCacheTrace({
         cfg: params.config,
         env: process.env,
