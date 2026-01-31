@@ -2,16 +2,27 @@
   "id": "memory-lancedb",
   "kind": "memory",
   "uiHints": {
+    "embedding.provider": {
+      "label": "Embedding Provider",
+      "placeholder": "local",
+      "help": "Choose 'local' for on-device embeddings (no API key) or 'openai' for cloud"
+    },
     "embedding.apiKey": {
       "label": "OpenAI API Key",
       "sensitive": true,
       "placeholder": "sk-proj-...",
-      "help": "API key for OpenAI embeddings (or use ${OPENAI_API_KEY})"
+      "help": "API key for OpenAI embeddings (only required if provider is 'openai')"
     },
     "embedding.model": {
       "label": "Embedding Model",
       "placeholder": "text-embedding-3-small",
-      "help": "OpenAI embedding model to use"
+      "help": "Embedding model to use"
+    },
+    "embedding.localModelPath": {
+      "label": "Local Model Path",
+      "placeholder": "hf:ggml-org/embeddinggemma-300M-GGUF/embeddinggemma-300M-Q8_0.gguf",
+      "help": "Path or HuggingFace URI for local embedding model",
+      "advanced": true
     },
     "dbPath": {
       "label": "Database Path",
@@ -35,20 +46,21 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
+          "provider": {
+            "type": "string",
+            "enum": ["openai", "local"],
+            "default": "local"
+          },
           "apiKey": {
             "type": "string"
           },
           "model": {
-            "type": "string",
-            "enum": [
-              "text-embedding-3-small",
-              "text-embedding-3-large"
-            ]
+            "type": "string"
+          },
+          "localModelPath": {
+            "type": "string"
           }
-        },
-        "required": [
-          "apiKey"
-        ]
+        }
       },
       "dbPath": {
         "type": "string"
