@@ -72,8 +72,6 @@
         "type": "boolean"
       }
     },
-    "required": [
-      "embedding"
-    ]
+    "required": ["embedding"]
   }
 }
