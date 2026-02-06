@@ -101,20 +101,28 @@ export const memoryConfigSchema = {
     }
 
     const provider = (embedding.provider as EmbeddingProvider) || "openai";
-    assertAllowedKeys(embedding, ["provider", "apiKey", "model", "localModelPath"], "embedding config");
+    assertAllowedKeys(
+      embedding,
+      ["provider", "apiKey", "model", "localModelPath"],
+      "embedding config",
+    );
 
     // For OpenAI, apiKey is required
     if (provider === "openai" && typeof embedding.apiKey !== "string") {
       throw new Error("embedding.apiKey is required for OpenAI provider");
     }
 
-    const model = provider === "local"
-      ? (typeof embedding.model === "string" ? embedding.model : DEFAULT_LOCAL_MODEL)
-      : (typeof embedding.model === "string" ? embedding.model : DEFAULT_OPENAI_MODEL);
+    const model =
+      provider === "local"
+        ? typeof embedding.model === "string"
+          ? embedding.model
+          : DEFAULT_LOCAL_MODEL
+        : typeof embedding.model === "string"
+          ? embedding.model
+          : DEFAULT_OPENAI_MODEL;
 
-    const localModelPath = typeof embedding.localModelPath === "string"
-      ? embedding.localModelPath
-      : DEFAULT_LOCAL_MODEL;
+    const localModelPath =
+      typeof embedding.localModelPath === "string" ? embedding.localModelPath : DEFAULT_LOCAL_MODEL;
 
     return {
       embedding: {

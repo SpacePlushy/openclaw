@@ -151,7 +151,8 @@ class MemoryDB {
 // ============================================================================
 
 class OpenAIEmbeddings implements EmbeddingClient {
-  private client: any; // OpenAI client
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private client: any; // OpenAI client - dynamically imported
 
   constructor(
     apiKey: string,
@@ -176,16 +177,23 @@ class OpenAIEmbeddings implements EmbeddingClient {
 // ============================================================================
 
 class LocalEmbeddings implements EmbeddingClient {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamically imported node-llama-cpp types
   private context: any = null;
   private initPromise: Promise<void> | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private model: any = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private llama: any = null;
 
   constructor(private modelPath: string) {}
 
   private async ensureInitialized(): Promise<void> {
-    if (this.context) return;
-    if (this.initPromise) return this.initPromise;
+    if (this.context) {
+      return;
+    }
+    if (this.initPromise) {
+      return this.initPromise;
+    }
 
     this.initPromise = this.doInitialize();
     return this.initPromise;
@@ -204,7 +212,7 @@ class LocalEmbeddings implements EmbeddingClient {
   async embed(text: string): Promise<number[]> {
     await this.ensureInitialized();
     const embedding = await this.context.getEmbeddingFor(text);
-    return Array.from(embedding.vector) as number[];
+    return Array.from(embedding.vector);
   }
 }
 
@@ -219,7 +227,8 @@ function createEmbeddingClient(
   localModelPath?: string,
 ): EmbeddingClient {
   if (provider === "local") {
-    const path = localModelPath || "hf:ggml-org/embeddinggemma-300M-GGUF/embeddinggemma-300M-Q8_0.gguf";
+    const path =
+      localModelPath || "hf:ggml-org/embeddinggemma-300M-GGUF/embeddinggemma-300M-Q8_0.gguf";
     return new LocalEmbeddings(path);
   }
 
@@ -293,14 +302,18 @@ function detectCategory(text: string): MemoryCategory {
 const memoryPlugin = {
   id: "memory-lancedb",
   name: "Memory (LanceDB)",
-  description: "LanceDB-backed long-term memory with auto-recall/capture (supports local embeddings)",
+  description:
+    "LanceDB-backed long-term memory with auto-recall/capture (supports local embeddings)",
   kind: "memory" as const,
   configSchema: memoryConfigSchema,
 
   register(api: OpenClawPluginApi) {
     const cfg = memoryConfigSchema.parse(api.pluginConfig);
     const resolvedDbPath = api.resolvePath(cfg.dbPath!);
-    const vectorDim = vectorDimsForModel(cfg.embedding.model ?? "text-embedding-3-small", cfg.embedding.provider);
+    const vectorDim = vectorDimsForModel(
+      cfg.embedding.model ?? "text-embedding-3-small",
+      cfg.embedding.provider,
+    );
     const db = new MemoryDB(resolvedDbPath, vectorDim);
 
     const embeddings = createEmbeddingClient(
