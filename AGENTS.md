@@ -87,6 +87,17 @@
 - Pure test additions/fixes generally do **not** need a changelog entry unless they alter user-facing behavior or the user asks for one.
 - Mobile: before using a simulator, check for connected real devices (iOS + Android) and prefer them when available.
 
+## Fork & Upstream Merge Strategy
+
+This is a fork of `openclaw/openclaw`. When merging from upstream:
+
+- **Local changes take priority over upstream changes.** Always preserve local modifications (e.g., local embedding support in `memory-lancedb`, custom config schemas, dependency additions like `node-llama-cpp`).
+- When resolving merge conflicts, keep the HEAD (local) version unless the upstream change is clearly a bug fix or security patch that doesn't conflict with local functionality.
+- Key local customizations to preserve:
+  - `extensions/memory-lancedb`: local embedding provider support, flexible model config (no required apiKey for local provider)
+  - `package.json`: `node-llama-cpp` in peerDependencies and onlyBuiltDependencies, `ignoredBuiltDependencies` for `core-js`
+- After merging upstream, always run `pnpm install && pnpm build` and restart the gateway to verify local features still work.
+
 ## Commit & Pull Request Guidelines
 
 - Create commits with `scripts/committer "<msg>" <file...>`; avoid manual `git add`/`git commit` so staging stays scoped.
